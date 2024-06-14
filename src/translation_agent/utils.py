@@ -2,7 +2,8 @@ import os
 from typing import List
 from typing import Union
 
-import openai
+import ollama
+from ollama._types import Options
 import tiktoken
 from dotenv import load_dotenv
 from icecream import ic
@@ -10,10 +11,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 load_dotenv()  # read local .env file
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = ollama.Client(host=os.getenv('OLLAMA_HOST'))
+model = os.getenv('OLLAMA_MODEL')
 
 MAX_TOKENS_PER_CHUNK = (
-    1000  # if text is more than this many tokens, we'll break it up into
+    500  # if text is more than this many tokens, we'll break it up into
 )
 # discrete chunks to translate one chunk at a time
 
@@ -21,7 +24,7 @@ MAX_TOKENS_PER_CHUNK = (
 def get_completion(
     prompt: str,
     system_message: str = "You are a helpful assistant.",
-    model: str = "gpt-4-turbo",
+    model: str = 'qwen2',
     temperature: float = 0.3,
     json_mode: bool = False,
 ) -> Union[str, dict]:
@@ -45,29 +48,31 @@ def get_completion(
             If json_mode is False, returns the generated text as a string.
     """
 
+    options = Options(temperature=temperature, top_p=1)
     if json_mode:
-        response = client.chat.completions.create(
+        response = client.chat(
             model=model,
-            temperature=temperature,
-            top_p=1,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt},
             ],
+            #response_format={"type": "json_object"},
+            stream=False,
+            format='json',
+            options=options
         )
-        return response.choices[0].message.content
+        return response['message']['content']
     else:
-        response = client.chat.completions.create(
+        response = client.chat(
             model=model,
-            temperature=temperature,
-            top_p=1,
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt},
             ],
+            stream=False,
+            options=options
         )
-        return response.choices[0].message.content
+        return response['message']['content']
 
 
 def one_chunk_initial_translation(
@@ -259,9 +264,13 @@ def one_chunk_translate_text(
         source_lang, target_lang, source_text
     )
 
+    print(translation_1)
+    print('---------------------------')
     reflection = one_chunk_reflect_on_translation(
         source_lang, target_lang, source_text, translation_1, country
     )
+    print(reflection)
+    print('---------------------------')
     translation_2 = one_chunk_improve_translation(
         source_lang, target_lang, source_text, translation_1, reflection
     )
@@ -672,6 +681,7 @@ def translate(
 
         ic(token_size)
 
+        # FIXME: not work with ollama
         text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
             model_name="gpt-4",
             chunk_size=token_size,
